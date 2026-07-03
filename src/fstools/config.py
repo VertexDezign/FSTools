@@ -38,6 +38,25 @@ def mods_dir() -> Path | None:
     return mods if mods.is_dir() else None
 
 
+def game_install_dir() -> Path | None:
+    """The 'Farming Simulator 25' install folder (holds FarmingSimulator2025.exe)."""
+    override = os.environ.get("FS25_GAME_DIR")
+    if override:
+        p = Path(override)
+        return p if p.is_dir() else None
+    home = Path.home()
+    for root in _STEAM_ROOTS:
+        candidate = home / root / "steamapps/common/Farming Simulator 25"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def to_wine_path(p: Path) -> str:
+    r"""Map an absolute Linux path to its Proton-prefix drive path (Z:\...)."""
+    return "Z:" + str(p).replace("/", "\\")
+
+
 def log_path() -> Path | None:
     override = os.environ.get("FS25_LOG")
     if override:

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 
 import typer
 
-from . import config, logtail, pack as packmod, validate as validatemod
+from . import config, logtail, pack as packmod, testrunner, validate as validatemod
 from .console import die, info, ok, warn
 
 app = typer.Typer(
@@ -134,13 +135,124 @@ def validate(
 
 
 @app.command()
+def test(
+    mod: Path = typer.Argument(
+        Path("."), help="mod folder or .zip to test (default: current folder)"),
+    keep_images: bool = typer.Option(
+        False, "--keep-images", help="when packing a folder, keep png/psd/tga"),
+    verbose: bool = typer.Option(
+        False, "--verbose", help="pass --verbose to the TestRunner"),
+) -> None:
+    """Run the GIANTS ModHub TestRunner against a mod (via the FS25 Proton prefix).
+
+    Requires protontricks and a downloaded TestRunner (set FS25_TESTRUNNER or drop
+    the TestRunner*.zip in the project / ~/Downloads — it is installed on first use).
+    """
+    mod = mod.expanduser().resolve()
+
+    # Ensure the TestRunner exe is installed.
+    if testrunner.installed_exe() is None:
+        source = testrunner.find_source()
+        if source is None:
+            raise die("TestRunner not found. Download it from the GIANTS Developer "
+                      "Network and set FS25_TESTRUNNER, or drop TestRunner*.zip in "
+                      "~/Downloads.")
+        info(f"Installing TestRunner from {source.name}")
+        testrunner.install(source)
+        ok(f"Installed to {testrunner.INSTALL_DIR}")
+
+    # Resolve the mod to a clean .zip (pack a folder; use a .zip as-is).
+    tmp: tempfile.TemporaryDirectory | None = None
+    if mod.is_dir():
+        if not (mod / "modDesc.xml").is_file():
+            raise die(f"'{mod.name}' has no modDesc.xml")
+        tmp = tempfile.TemporaryDirectory(prefix="fstest-")
+        zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod)}.zip"
+        entries = packmod.collect_files(mod, zip_path.name, keep_images)
+        packmod.write_zip(mod, zip_path, entries)
+        info(f"Packed {mod.name} -> {zip_path.name} ({len(entries)} files)")
+        output_dir = mod.parent
+    elif mod.suffix.lower() == ".zip" and mod.is_file():
+        zip_path = mod
+        output_dir = mod.parent
+    else:
+        raise die(f"Not a mod folder or .zip: {mod}")
+
+    info("Running TestRunner in the FS25 Proton prefix (the GIANTS Editor may "
+         "open briefly — this can take a few minutes)…")
+    try:
+        result = testrunner.run(zip_path, output_dir, verbose=verbose)
+    except testrunner.TestRunnerBusy as exc:
+        raise die(str(exc))
+    except FileNotFoundError as exc:
+        raise die(str(exc))
+    finally:
+        if tmp is not None:
+            tmp.cleanup()
+
+    verdict = result["verdict"]
+    style = {"PASS": typer.colors.GREEN, "FAIL": typer.colors.YELLOW,
+             "CRASH": typer.colors.RED}.get(verdict, typer.colors.WHITE)
+    typer.secho(f"TestRunner verdict: {verdict}", fg=style, bold=True)
+
+    for r in result["results"]:
+        info(f"  report : {r}")
+    if result["log"]:
+        info(f"  log    : {result['log']}")
+
+    if verdict == "CRASH":
+        warn("The TestRunner aborted without writing a report — see the log above. "
+             "This is usually an internal TestRunner bug, not necessarily your mod.")
+        raise typer.Exit(code=2)
+
+    raise typer.Exit(code=0 if verdict == "PASS" else 1)
+
+
+@app.command("testrunner")
+def testrunner_cmd(
+    update: bool = typer.Option(
+        False, "-u", "--update", help="install/replace the exe from SOURCE (or the "
+        "newest TestRunner*.zip found in the project / ~/Downloads)"),
+    source: Optional[Path] = typer.Option(
+        None, "-s", "--source", help="path to a TestRunner*.zip or .exe to install"),
+) -> None:
+    """Show or update the installed GIANTS TestRunner executable."""
+    current = testrunner.installed_exe()
+    recorded = testrunner.installed_source()
+    info(f"installed  : {current or '(not installed)'}")
+    if recorded:
+        info(f"from       : {recorded}")
+
+    available = source.expanduser().resolve() if source else testrunner.find_source()
+    if available:
+        newer = (testrunner.parse_version(available.name)
+                 > testrunner.parse_version(recorded or ""))
+        tag = "  (newer)" if newer and recorded else ""
+        info(f"available  : {available.name}{tag}")
+
+    if not update and source is None:
+        if available and recorded and \
+                testrunner.parse_version(available.name) > testrunner.parse_version(recorded):
+            warn(f"A newer TestRunner is available. Update with:  fs testrunner --update")
+        return
+
+    if available is None:
+        raise die("No TestRunner*.zip or .exe found. Download it from the GIANTS "
+                  "Developer Network, then pass --source PATH.")
+    info(f"Installing {available.name} …")
+    testrunner.install(available)
+    ok(f"TestRunner updated -> {testrunner.INSTALL_DIR / testrunner.EXE_NAME}")
+
+
+@app.command()
 def paths() -> None:
     """Show the detected FS25 folders (useful for debugging config)."""
-    gamedata = config.game_data_dir()
     info(f"app id     : {config.APPID}")
-    info(f"game data  : {gamedata or '(not found)'}")
+    info(f"game data  : {config.game_data_dir() or '(not found)'}")
+    info(f"game install: {config.game_install_dir() or '(not found)'}")
     info(f"mods dir   : {config.mods_dir() or '(not found)'}")
     info(f"log.txt    : {config.log_path() or '(not found)'}")
+    info(f"testrunner : {testrunner.installed_exe() or '(not installed)'}")
 
 
 if __name__ == "__main__":

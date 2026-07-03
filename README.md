@@ -31,6 +31,12 @@ fs pack ../OtherMod        # a path still works if you'd rather not cd
 
 fs validate                # check the current folder's modDesc.xml
 
+fs test                    # run the GIANTS ModHub TestRunner (opens the HTML report)
+fs test ../SomeMod.zip     # test an existing zip instead of packing
+fs testrunner              # show installed TestRunner + whether a newer one exists
+fs testrunner --update     # install the newest TestRunner*.zip found
+fs testrunner -s FILE.zip  # install a specific TestRunner archive/exe
+
 fs log                     # follow log.txt live (errors red, warnings yellow)
 fs log -e                  # only Error/Warning lines
 fs log -n 50               # last 50 lines, then follow
@@ -59,15 +65,45 @@ scripts (`*.cmd *.sh *.py`), docs (`*.txt *.md`), VCS/IDE dirs
 > ships as a `.png` that `modDesc` references as `.dds` (FS converts it at load).
 > Use `--keep-images` if a mod ships *other* textures as `.png` rather than `.dds`.
 
+### ModHub TestRunner (`fs test`)
+
+Runs GIANTS' official [TestRunner](https://gdn.giants-software.com/) — the same
+checks ModHub QA uses — against your mod on Linux. It packs the folder to a clean
+zip (or takes a `.zip`), then runs the Windows TestRunner **inside the FS25 Proton
+prefix** via `protontricks-launch`, so it finds the game and the GIANTS Editor
+automatically. The HTML/XML report and `TestRunner.log` are written next to your
+mod. Exit code: `0` PASS, `1` FAIL (report written), `2` the TestRunner crashed.
+
+Requirements:
+- `protontricks` installed (`protontricks-launch` on PATH).
+- GIANTS Editor ≥10.0.3 installed **in the FS25 prefix** (install it once through
+  the prefix so it registers in `giantsPackageRegistry`).
+- The TestRunner itself (not redistributed here): download it from the GIANTS
+  Developer Network. On first `fs test` it is installed automatically from a
+  `TestRunner*.zip` found in the current directory or `~/Downloads`; or set
+  `FS25_TESTRUNNER` to the exe. Installed copy lives in `~/.local/share/fstools/`.
+
+**Updating the TestRunner:** drop the new `TestRunner_public_X.zip` in the current
+directory or `~/Downloads` and run `fs testrunner --update` (picks the highest version found),
+or `fs testrunner -s /path/to.zip` for a specific file. `fs testrunner` with no
+args shows the installed version and warns if a newer archive is available.
+
+> The TestRunner drives the GIANTS Editor GUI mid-run and can take several minutes
+> (longer for maps). A window may flash open — that's expected. Because it writes
+> results into one shared dir, only one `fs test` may run at a time — a second run
+> refuses to start (lock) rather than corrupt results.
+
 ## Configuration
 
 Paths auto-detect for Steam app `2300320`. Override via env vars:
 
-| Variable        | Meaning                                |
-|-----------------|----------------------------------------|
-| `FS25_MODS_DIR` | mods folder (else auto-detected)       |
-| `FS25_APPID`    | Steam app id (default `2300320`)       |
-| `FS25_LOG`      | path to `log.txt` (else auto-detected) |
+| Variable         | Meaning                                      |
+|------------------|----------------------------------------------|
+| `FS25_MODS_DIR`  | mods folder (else auto-detected)             |
+| `FS25_GAME_DIR`  | game install dir (else auto-detected)        |
+| `FS25_APPID`     | Steam app id (default `2300320`)             |
+| `FS25_LOG`       | path to `log.txt` (else auto-detected)       |
+| `FS25_TESTRUNNER`| path to `TestRunner_public.exe`              |
 
 ## Project layout
 
@@ -77,7 +113,8 @@ src/fstools/
   cli.py                  # Typer app — subcommand wiring
   config.py               # shared Steam/Proton path detection
   pack.py                 # zip packing + exclusion rules
-  logtail.py              # log.txt follower
   validate.py             # modDesc.xml checks
+  testrunner.py           # GIANTS ModHub TestRunner runner (via Proton)
+  logtail.py              # log.txt follower
   console.py              # coloured output helpers
 ```
