@@ -48,7 +48,7 @@ def pack(
     if not (mod_dir / "modDesc.xml").is_file():
         raise die(f"'{mod_dir.name}' has no modDesc.xml — packing canceled!")
 
-    out_dir = output.expanduser().resolve() if output else mod_dir.parent
+    out_dir = output.expanduser().resolve() if output else mod_dir
     zip_path = out_dir / f"{packmod.zip_stem(mod_dir)}.zip"
 
     info(f"Packing mod {typer.style(mod_dir.name, bold=True)}")

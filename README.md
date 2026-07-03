@@ -21,7 +21,7 @@ Upgrade after pulling changes: nothing to do (editable). To uninstall:
 ## Commands
 
 ```sh
-cd MyMod && fs pack        # pack the current folder -> ../FS25_MyMod.zip
+cd MyMod && fs pack        # pack the current folder -> ./FS25_MyMod.zip
 fs pack -o build           # -> build/FS25_MyMod.zip
 fs pack -d                 # also copy into the FS25 mods folder
 fs pack -p                 # deploy, then launch FS25 via Steam
@@ -50,8 +50,9 @@ fs --help                  # full help (works on any subcommand too)
 
 `fs pack` defaults to the **current folder** as the mod. The zip is named after
 that folder, adding the required `FS25_` prefix if missing
-(`LiquidManureTransfer` → `FS25_LiquidManureTransfer.zip`), and is written to the
-folder's parent by default. It packs the folder's *contents* so `modDesc.xml`
+(`LiquidManureTransfer` → `FS25_LiquidManureTransfer.zip`), and is written inside
+the mod folder by default (the `.zip` is excluded from its own packing). It packs
+the folder's *contents* so `modDesc.xml`
 lands at the zip root (what FS requires), using the stdlib `zipfile` — no
 `7z`/`zip` binary needed. It refuses to pack a folder without a `modDesc.xml`.
 
