@@ -29,9 +29,14 @@ EXCLUDE_DIRS = {
 
 
 def zip_stem(mod_dir: Path) -> str:
-    """Mod folder name, ensuring the required FS25_ prefix (e.g. 'FS25_MyMod')."""
+    """Mod folder name normalized to the required 'FS25_' + lowercase-char form
+    (e.g. 'MyMod' or 'FS25_MyMod' -> 'FS25_myMod')."""
     name = mod_dir.name
-    return name if name.startswith(MOD_PREFIX) else f"{MOD_PREFIX}{name}"
+    if name[: len(MOD_PREFIX)].upper() == MOD_PREFIX:  # strip existing prefix, any case
+        name = name[len(MOD_PREFIX):]
+    if name:  # force the first char after the prefix to lower case
+        name = name[0].lower() + name[1:]
+    return f"{MOD_PREFIX}{name}"
 
 
 def icon_stems(mod_dir: Path) -> set[str]:
