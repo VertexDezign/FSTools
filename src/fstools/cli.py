@@ -22,7 +22,6 @@ from .console import die, info, ok, warn
 app = typer.Typer(
     help="Farming Simulator 25 modding helpers.",
     no_args_is_help=True,
-    add_completion=False,
 )
 
 

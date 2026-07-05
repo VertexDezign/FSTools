@@ -18,6 +18,19 @@ restart your shell.
 Upgrade after pulling changes: nothing to do (editable). To uninstall:
 `uv tool uninstall fstools`.
 
+### Shell completion
+
+`fs` can complete subcommands, options, and file arguments. Install it once for
+your shell, then restart the shell (or `source` your rc file):
+
+```sh
+fs --install-completion          # detects your shell (bash/zsh/fish/PowerShell)
+```
+
+This appends a small snippet to your shell config (e.g. `~/.bashrc`,
+`~/.zshrc`, `~/.config/fish/completions/`). Prefer to wire it up yourself?
+`fs --show-completion` prints the script to stdout instead of installing it.
+
 ## Commands
 
 ```sh
