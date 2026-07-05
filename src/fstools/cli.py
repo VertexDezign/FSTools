@@ -16,7 +16,7 @@ from typing import Optional
 
 import typer
 
-from . import config, logtail, pack as packmod, testrunner, validate as validatemod
+from . import config, logtail, pack as packmod, packconfig, testrunner, validate as validatemod
 from .console import die, info, ok, warn
 
 app = typer.Typer(
@@ -48,12 +48,26 @@ def pack(
     if not (mod_dir / "modDesc.xml").is_file():
         raise die(f"'{mod_dir.name}' has no modDesc.xml — packing canceled!")
 
+    try:
+        cfg = packconfig.load(mod_dir)
+    except packconfig.PackConfigError as exc:
+        raise die(str(exc))
+
     out_dir = output.expanduser().resolve() if output else mod_dir
-    zip_path = out_dir / f"{packmod.zip_stem(mod_dir)}.zip"
+    zip_path = out_dir / f"{packmod.zip_stem(mod_dir, cfg.zip_name)}.zip"
 
     info(f"Packing mod {typer.style(mod_dir.name, bold=True)}")
     info(f"  source : {mod_dir}")
     info(f"  output : {zip_path}")
+    src = f"(from {packconfig.CONFIG_NAME})"
+    if cfg.zip_name:
+        info(f"  zip    : {zip_path.stem} {src}")
+    if cfg.title:
+        info(f"  title  : {cfg.title_display()} {src}")
+    if cfg.version:
+        info(f"  version: {cfg.version} {src}")
+    if cfg.author:
+        info(f"  author : {cfg.author} {src}")
     if keep_images:
         info("  images : included (--keep-images)")
 
@@ -66,7 +80,8 @@ def pack(
     else:
         if zip_path.exists():
             warn(f"Old {zip_path.name} will be replaced")
-        size = packmod.write_zip(mod_dir, zip_path, entries)
+        size = packmod.write_zip(mod_dir, zip_path, entries,
+                                 title=cfg.title, version=cfg.version, author=cfg.author)
         ok(f"Mod '{mod_dir.name}' packed successfully! "
            f"({len(entries)} files, {size / 1_048_576:.1f} MiB)")
 
@@ -166,10 +181,15 @@ def test(
     if mod.is_dir():
         if not (mod / "modDesc.xml").is_file():
             raise die(f"'{mod.name}' has no modDesc.xml")
+        try:
+            cfg = packconfig.load(mod)
+        except packconfig.PackConfigError as exc:
+            raise die(str(exc))
         tmp = tempfile.TemporaryDirectory(prefix="fstest-")
-        zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod)}.zip"
+        zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod, cfg.zip_name)}.zip"
         entries = packmod.collect_files(mod, zip_path.name, keep_images)
-        packmod.write_zip(mod, zip_path, entries)
+        packmod.write_zip(mod, zip_path, entries,
+                          title=cfg.title, version=cfg.version, author=cfg.author)
         info(f"Packed {mod.name} -> {zip_path.name} ({len(entries)} files)")
         output_dir = mod.parent
     elif mod.suffix.lower() == ".zip" and mod.is_file():

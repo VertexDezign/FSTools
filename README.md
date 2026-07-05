@@ -66,6 +66,35 @@ scripts (`*.cmd *.sh *.py`), docs (`*.txt *.md`), VCS/IDE dirs
 > ships as a `.png` that `modDesc` references as `.dds` (FS converts it at load).
 > Use `--keep-images` if a mod ships *other* textures as `.png` rather than `.dds`.
 
+### Per-mod config (`fstools.toml`)
+
+Drop an optional `fstools.toml` next to `modDesc.xml` to drive the packed mod's
+name and metadata **without editing `modDesc.xml` or renaming the folder**:
+
+```toml
+[mod]
+zip_name = "FS25_MyMod_dev"   # packed .zip stem (FS25_ prefix added if missing)
+version  = "1.0.0.0-dev"      # overrides <version>
+author   = "Me"               # overrides <author>
+title    = "My Mod (dev)"     # overrides every <title> language entry
+
+# …or set titles per language instead of one string:
+# [mod.title]
+# en = "My Mod (dev)"
+# de = "Mein Mod (dev)"
+```
+
+Every key is optional. `zip_name` changes only the output filename; `version`,
+`author`, and `title` are rewritten **inside the packed zip's `modDesc.xml`** —
+the file on disk is untouched, and `fstools.toml` itself is never packed. A
+string `title` sets every existing `<title>` language entry; a `[mod.title]`
+table sets (or creates) each language you list.
+
+This lets a **dev build coexist with your stable mod in the same savegame**: give
+it a different `zip_name` (FS keys mods by zip filename) and a `title` so you can
+tell them apart in the mod list. Delete or `.gitignore` the file to go back to a
+normal build. `fs test` honours the same config.
+
 ### ModHub TestRunner (`fs test`)
 
 Runs GIANTS' official [TestRunner](https://gdn.giants-software.com/) — the same
