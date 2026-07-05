@@ -25,7 +25,6 @@ cd MyMod && fs pack        # pack the current folder -> ./FS25_MyMod.zip
 fs pack -o build           # -> build/FS25_MyMod.zip
 fs pack -d                 # also copy into the FS25 mods folder
 fs pack -p                 # deploy, then launch FS25 via Steam
-fs pack --keep-images      # keep ALL png/psd/tga (icon is kept regardless)
 fs pack -n                 # dry run — list files, write nothing
 fs pack ../OtherMod        # a path still works if you'd rather not cd
 
@@ -57,14 +56,33 @@ lands at the zip root (what FS requires), using the stdlib `zipfile` — no
 `7z`/`zip` binary needed. It refuses to pack a folder without a `modDesc.xml`.
 
 Excluded by default: source/DCC files (`*.blend *.obj *.fbx *.mel *.mb *.ma`),
-scripts (`*.cmd *.sh *.py`), docs (`*.txt *.md`), VCS/IDE dirs
-(`.git .svn .idea .vscode …`), `$data` / `substance` folders, and image sources
-(`*.png *.psd *.tga *.pdn *.gim`).
+image-editor sources (`*.psd *.pdn`), scripts (`*.cmd *.sh *.py`), docs
+(`*.txt *.md`), VCS/IDE dirs (`.git .svn .idea .vscode …`), and `$data` /
+`substance` folders.
 
-> Images are stripped by default (matching the original packer) — **except the
-> mod's icon**: the file named in `<iconFilename>` is always kept, even when it
-> ships as a `.png` that `modDesc` references as `.dds` (FS converts it at load).
-> Use `--keep-images` if a mod ships *other* textures as `.png` rather than `.dds`.
+> Rendered images (`.png`, `.dds`, `.tga`, …) are **kept** — a mod's textures and
+> icon ship as-is (only the editor sources `.psd`/`.pdn` are dropped). If your
+> repo holds image (or other) files that aren't part of the mod, list them in a
+> `.fsignore` (see below). Run `fs test` before publishing: the GIANTS TestRunner
+> flags a `.png` used where a `.dds` is expected, so you don't need the packer to
+> guess.
+
+### Ignoring files (`.fsignore`)
+
+Drop a `.fsignore` in the mod folder to keep repo-only files out of the zip. It's
+gitignore-flavoured — one glob per line, `#` comments and blank lines ignored:
+
+```gitignore
+# working files that live in the repo but aren't part of the mod
+*.psd
+*.xcf
+textures/_wip/          # a whole subfolder
+docs/preview.png        # a specific file
+```
+
+A pattern **without** a `/` matches that name at any depth (`*.psd`, `_wip/`); a
+pattern **with** a `/` is anchored to the mod-relative path (`textures/_wip/`).
+`*` spans path separators. The `.fsignore` itself is never packed.
 
 ### Per-mod config (`fstools.toml`)
 

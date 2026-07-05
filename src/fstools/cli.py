@@ -36,8 +36,6 @@ def pack(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
     play: bool = typer.Option(
         False, "-p", "--play", help="deploy, then launch FS25 via Steam (implies --deploy)"),
-    keep_images: bool = typer.Option(
-        False, "--keep-images", help="do NOT strip png/psd/tga/pdn/gim"),
     dry_run: bool = typer.Option(
         False, "-n", "--dry-run", help="show what would happen without writing anything"),
 ) -> None:
@@ -68,10 +66,8 @@ def pack(
         info(f"  version: {cfg.version} {src}")
     if cfg.author:
         info(f"  author : {cfg.author} {src}")
-    if keep_images:
-        info("  images : included (--keep-images)")
 
-    entries = packmod.collect_files(mod_dir, zip_path.name, keep_images)
+    entries = packmod.collect_files(mod_dir, zip_path.name)
 
     if dry_run:
         warn(f"dry-run: would pack {len(entries)} files:")
@@ -153,8 +149,6 @@ def validate(
 def test(
     mod: Path = typer.Argument(
         Path("."), help="mod folder or .zip to test (default: current folder)"),
-    keep_images: bool = typer.Option(
-        False, "--keep-images", help="when packing a folder, keep png/psd/tga"),
     verbose: bool = typer.Option(
         False, "--verbose", help="pass --verbose to the TestRunner"),
 ) -> None:
@@ -187,7 +181,7 @@ def test(
             raise die(str(exc))
         tmp = tempfile.TemporaryDirectory(prefix="fstest-")
         zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod, cfg.zip_name)}.zip"
-        entries = packmod.collect_files(mod, zip_path.name, keep_images)
+        entries = packmod.collect_files(mod, zip_path.name)
         packmod.write_zip(mod, zip_path, entries,
                           title=cfg.title, version=cfg.version, author=cfg.author)
         info(f"Packed {mod.name} -> {zip_path.name} ({len(entries)} files)")

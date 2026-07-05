@@ -10,19 +10,21 @@ from .packconfig import CONFIG_NAME
 
 MOD_PREFIX = "FS25_"
 
+# gitignore-style file listing extra paths to leave out of the zip (per mod).
+IGNORE_NAME = ".fsignore"
+
 # File globs matched against each file's name (case-insensitive).
 EXCLUDE_FILES = [
     "*.cmd", "*.sh", "*.py", "*.zip", "*.yml", "*.yaml",
     "*.blend", "*.obj", "*.fbx",
     "*.mel", "*.mb", "*.ma",
+    "*.psd", "*.pdn",  # image editor sources — never part of a mod zip
     "*.txt", "*.md",
     ".gitattributes", ".gitignore", ".editorconfig",
     ".DS_Store", "Thumbs.db",
-    CONFIG_NAME,  # our own fspack.toml — never ship it
+    CONFIG_NAME,   # our own fstools.toml — never ship it
+    IGNORE_NAME,   # nor the .fsignore
 ]
-
-# Image sources — excluded by default, kept with keep_images=True.
-EXCLUDE_IMAGES = ["*.png", "*.psd", "*.tga", "*.pdn", "*.gim"]
 
 # Whole directories to skip (matched against any path component).
 EXCLUDE_DIRS = {
@@ -44,39 +46,54 @@ def zip_stem(mod_dir: Path, override: str | None = None) -> str:
     return f"{MOD_PREFIX}{name}"
 
 
-def icon_stems(mod_dir: Path) -> set[str]:
-    """Lowercased stem(s) of iconFilename in modDesc.xml, so we never strip the
-    mod's store icon even when it ships as a .png (FS converts png->dds)."""
-    desc = mod_dir / "modDesc.xml"
-    try:
-        root = ET.parse(desc).getroot()
-    except (ET.ParseError, OSError):
-        return set()
-    icon = (root.findtext("iconFilename") or "").strip()
-    return {Path(icon).stem.lower()} if icon else set()
-
-
-def is_excluded(rel: Path, keep_images: bool, keep_stems: set[str]) -> bool:
+def is_excluded(rel: Path) -> bool:
     if any(part in EXCLUDE_DIRS for part in rel.parts):
         return True
     name = rel.name.lower()
-    if any(fnmatch.fnmatch(name, p.lower()) for p in EXCLUDE_FILES):
-        return True
-    if not keep_images and any(fnmatch.fnmatch(name, p.lower()) for p in EXCLUDE_IMAGES):
-        # keep it anyway if it's the mod's icon
-        return rel.stem.lower() not in keep_stems
+    return any(fnmatch.fnmatch(name, p.lower()) for p in EXCLUDE_FILES)
+
+
+def load_ignore(mod_dir: Path) -> list[str]:
+    """Read .fsignore patterns from the mod folder (blank lines and # comments
+    skipped). Absent file -> no extra patterns."""
+    path = mod_dir / IGNORE_NAME
+    if not path.is_file():
+        return []
+    patterns: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            patterns.append(line)
+    return patterns
+
+
+def is_ignored(rel: Path, patterns: list[str]) -> bool:
+    """gitignore-flavoured match against a mod-relative path. A pattern with a
+    '/' is matched against the whole path (so it can target a subfolder); one
+    without is matched against every path component (so 'wip/' or '*.psd' hits
+    at any depth). '*' spans path separators."""
+    if not patterns:
+        return False
+    posix = rel.as_posix()
+    for pat in patterns:
+        p = pat.rstrip("/")
+        if "/" in p:
+            if fnmatch.fnmatch(posix, p) or fnmatch.fnmatch(posix, f"{p}/*"):
+                return True
+        elif any(fnmatch.fnmatch(part, p) for part in rel.parts):
+            return True
     return False
 
 
-def collect_files(mod_dir: Path, zip_name: str, keep_images: bool) -> list[Path]:
+def collect_files(mod_dir: Path, zip_name: str) -> list[Path]:
     """Return the mod-relative paths that would be packed, in stable order."""
-    keep_stems = icon_stems(mod_dir)
+    ignore = load_ignore(mod_dir)
     entries: list[Path] = []
     for path in sorted(mod_dir.rglob("*")):
         if not path.is_file():
             continue
         rel = path.relative_to(mod_dir)
-        if is_excluded(rel, keep_images, keep_stems):
+        if is_excluded(rel) or is_ignored(rel, ignore):
             continue
         if rel.name == zip_name:  # a previous build sitting in the folder
             continue
