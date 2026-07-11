@@ -49,6 +49,10 @@ fs testrunner              # show installed TestRunner + whether a newer one exi
 fs testrunner --update     # install the newest TestRunner*.zip found
 fs testrunner -s FILE.zip  # install a specific TestRunner archive/exe
 
+fs edit scene.i3d          # open an .i3d in the GIANTS Editor
+fs register-editor         # make .i3d files open with the editor from any file manager
+fs register-editor --remove  # undo that association
+
 fs log                     # follow log.txt live (errors red, warnings yellow)
 fs log -e                  # only Error/Warning lines
 fs log -n 50               # last 50 lines, then follow
@@ -154,6 +158,27 @@ args shows the installed version and warns if a newer archive is available.
 > results into one shared dir, only one `fs test` may run at a time — a second run
 > refuses to start (lock) rather than corrupt results.
 
+### Opening i3d files (`fs edit` / `fs register-editor`)
+
+`fs edit scene.i3d` opens an `.i3d` scene in the GIANTS Editor. Like `fs test`,
+the editor is a Windows program living inside the FS25 Proton prefix, so it's
+launched via `protontricks-launch` with the file mapped to its `Z:\` prefix
+path — no manual "add non-Steam game" dance. The editor is auto-detected under
+`.../drive_c/Program Files/` (e.g. `GIANTS Software/GIANTS_Editor_10.0.11/editor.exe`,
+newest version wins); set `FS25_EDITOR` if yours lives elsewhere. Pass `-v` to
+run it in the foreground and see the editor's console (its "could not load
+file …" warnings are handy for spotting missing or mis-cased references).
+
+`fs register-editor` wires `.i3d` into your desktop so you can **double-click an
+`.i3d` in any file manager** (or run `xdg-open scene.i3d`) and it opens in the
+editor. It installs a freedesktop desktop entry (`~/.local/share/applications/`)
+and a `application/x-i3d` MIME type for `*.i3d` (`~/.local/share/mime/`), then
+makes it the default handler. `fs register-editor --remove` undoes both. Run it
+once; it points at the `fs` on your PATH, so editable source changes keep working.
+
+Requirements: `protontricks` (`protontricks-launch` on PATH) and the GIANTS
+Editor installed in the FS25 prefix — the same setup `fs test` needs.
+
 ## Configuration
 
 Paths auto-detect for Steam app `2300320`. Override via env vars:
@@ -165,6 +190,7 @@ Paths auto-detect for Steam app `2300320`. Override via env vars:
 | `FS25_APPID`     | Steam app id (default `2300320`)             |
 | `FS25_LOG`       | path to `log.txt` (else auto-detected)       |
 | `FS25_TESTRUNNER`| path to `TestRunner_public.exe`              |
+| `FS25_EDITOR`    | path to the GIANTS Editor `editor.exe`       |
 
 ## Project layout
 
@@ -176,6 +202,7 @@ src/fstools/
   pack.py                 # zip packing + exclusion rules
   validate.py             # modDesc.xml checks
   testrunner.py           # GIANTS ModHub TestRunner runner (via Proton)
+  editor.py               # open .i3d in the GIANTS Editor + .i3d file association
   logtail.py              # log.txt follower
   console.py              # coloured output helpers
 ```

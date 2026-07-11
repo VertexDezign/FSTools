@@ -4,6 +4,8 @@ Subcommands:
     fs pack MOD       pack a mod folder into a .zip (optionally deploy + launch)
     fs log            follow the game log.txt (errors in red, warnings yellow)
     fs validate MOD   sanity-check a mod's modDesc.xml
+    fs edit FILE.i3d  open an .i3d scene in the GIANTS Editor
+    fs register-editor  associate .i3d files with the GIANTS Editor
     fs paths          show the detected FS25 folders
 """
 from __future__ import annotations
@@ -16,7 +18,10 @@ from typing import Optional
 
 import typer
 
-from . import config, logtail, pack as packmod, packconfig, testrunner, validate as validatemod
+from . import (
+    config, editor as editormod, logtail, pack as packmod, packconfig,
+    testrunner, validate as validatemod,
+)
 from .console import die, info, ok, warn
 
 app = typer.Typer(
@@ -258,11 +263,56 @@ def testrunner_cmd(
 
 
 @app.command()
+def edit(
+    scene: Path = typer.Argument(
+        ..., help="the .i3d scene to open in the GIANTS Editor"),
+    debug: bool = typer.Option(
+        False, "-v", "--debug", help="run in the foreground and print the editor's "
+        "console (shows 'could not load file' warnings for missing/mis-cased refs)"),
+) -> None:
+    """Open an .i3d scene in the GIANTS Editor (via the FS25 Proton prefix)."""
+    path = scene.expanduser().resolve()
+    if not path.is_file():
+        raise die(f"File not found: {scene}")
+    if path.suffix.lower() != ".i3d":
+        warn(f"{path.name} is not an .i3d file — opening it anyway")
+    try:
+        proc = editormod.launch(path, quiet=not debug)
+    except FileNotFoundError as exc:
+        raise die(str(exc))
+    ok(f"Opening {path.name} in the GIANTS Editor…")
+    if debug:
+        info("Editor console follows (close the editor to return):")
+        proc.wait()
+
+
+@app.command("register-editor")
+def register_editor(
+    remove: bool = typer.Option(
+        False, "--remove", help="undo the association instead of installing it"),
+) -> None:
+    """Associate .i3d files with the GIANTS Editor so you can open them from any
+    file manager (double-click) or with `xdg-open FILE.i3d`."""
+    if remove:
+        editormod.unregister()
+        ok("Removed the .i3d → GIANTS Editor file association.")
+        return
+    if config.editor_exe() is None:
+        warn("GIANTS Editor not detected in the FS25 prefix — installing the "
+             "association anyway. Set FS25_EDITOR or install the editor in the "
+             "prefix so `fs edit` can find editor.exe.")
+    editormod.register()
+    ok("Registered .i3d files to open with the GIANTS Editor (via `fs edit`).")
+    info("Double-click any .i3d in your file manager, or run:  xdg-open FILE.i3d")
+
+
+@app.command()
 def paths() -> None:
     """Show the detected FS25 folders (useful for debugging config)."""
     info(f"app id     : {config.APPID}")
     info(f"game data  : {config.game_data_dir() or '(not found)'}")
     info(f"game install: {config.game_install_dir() or '(not found)'}")
+    info(f"editor     : {config.editor_exe() or '(not found)'}")
     info(f"mods dir   : {config.mods_dir() or '(not found)'}")
     info(f"log.txt    : {config.log_path() or '(not found)'}")
     info(f"testrunner : {testrunner.installed_exe() or '(not installed)'}")
