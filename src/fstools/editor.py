@@ -9,11 +9,18 @@ manager (or `xdg-open`) opens `*.i3d` with `fs edit`.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Iterator
+
+try:
+    import termios
+except ImportError:  # non-POSIX; the tool is Linux-only, but stay defensive.
+    termios = None  # type: ignore[assignment]
 
 from . import config
 
@@ -58,10 +65,43 @@ def launch(i3d: Path, quiet: bool = True) -> subprocess.Popen:
     if not quiet:
         # Inherit stdio so the editor's console (missing-file warnings) is shown.
         return subprocess.Popen(cmd, env=env)
+    # Redirect stdin too: otherwise the editor inherits our terminal on fd 0 and
+    # Wine flips it into raw mode (broken arrow keys / no echo) while it runs in
+    # the background — and, being detached, there is no exit we can wait for to
+    # restore it. Detaching stdin prevents the corruption entirely.
     return subprocess.Popen(
         cmd, start_new_session=True, env=env,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
+
+
+@contextlib.contextmanager
+def preserve_terminal() -> Iterator[None]:
+    """Snapshot the controlling terminal's mode and restore it on exit.
+
+    The GIANTS Editor runs under Wine, which switches the tty into raw mode and
+    does not reset it when it quits. Without this, running `fs edit -v` (which
+    inherits our stdio and waits) leaves the shell unusable afterwards — arrow
+    keys emit raw escape codes, input is not echoed. We save termios before the
+    editor starts and restore it once it is gone.
+    """
+    saved = None
+    fd = -1
+    if termios is not None and sys.stdin.isatty():
+        try:
+            fd = sys.stdin.fileno()
+            saved = termios.tcgetattr(fd)
+        except (termios.error, OSError, ValueError):
+            saved = None
+    try:
+        yield
+    finally:
+        if saved is not None:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+            except (termios.error, OSError, ValueError):
+                pass
 
 
 def _fs_bin() -> str:

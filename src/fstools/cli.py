@@ -10,6 +10,7 @@ Subcommands:
 """
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 import tempfile
@@ -276,14 +277,17 @@ def edit(
         raise die(f"File not found: {scene}")
     if path.suffix.lower() != ".i3d":
         warn(f"{path.name} is not an .i3d file — opening it anyway")
-    try:
-        proc = editormod.launch(path, quiet=not debug)
-    except FileNotFoundError as exc:
-        raise die(str(exc))
-    ok(f"Opening {path.name} in the GIANTS Editor…")
-    if debug:
-        info("Editor console follows (close the editor to return):")
-        proc.wait()
+    # In debug mode the editor inherits our stdio; Wine leaves the tty in raw
+    # mode on exit, so snapshot/restore the terminal around the whole run.
+    with (editormod.preserve_terminal() if debug else contextlib.nullcontext()):
+        try:
+            proc = editormod.launch(path, quiet=not debug)
+        except FileNotFoundError as exc:
+            raise die(str(exc))
+        ok(f"Opening {path.name} in the GIANTS Editor…")
+        if debug:
+            info("Editor console follows (close the editor to return):")
+            proc.wait()
 
 
 @app.command("register-editor")
