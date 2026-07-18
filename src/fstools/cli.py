@@ -4,10 +4,13 @@ Subcommands:
     fs pack MOD       pack a mod folder into a .zip (optionally deploy + launch)
     fs log            follow the game log.txt (errors in red, warnings yellow)
     fs validate MOD   sanity-check a mod's modDesc.xml
+    fs edit FILE.i3d  open an .i3d scene in the GIANTS Editor
+    fs register-editor  associate .i3d files with the GIANTS Editor
     fs paths          show the detected FS25 folders
 """
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 import tempfile
@@ -16,13 +19,15 @@ from typing import Optional
 
 import typer
 
-from . import config, logtail, pack as packmod, testrunner, validate as validatemod
+from . import (
+    config, editor as editormod, logtail, pack as packmod, packconfig,
+    testrunner, validate as validatemod,
+)
 from .console import die, info, ok, warn
 
 app = typer.Typer(
     help="Farming Simulator 25 modding helpers.",
     no_args_is_help=True,
-    add_completion=False,
 )
 
 
@@ -36,8 +41,6 @@ def pack(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
     play: bool = typer.Option(
         False, "-p", "--play", help="deploy, then launch FS25 via Steam (implies --deploy)"),
-    keep_images: bool = typer.Option(
-        False, "--keep-images", help="do NOT strip png/psd/tga/pdn/gim"),
     dry_run: bool = typer.Option(
         False, "-n", "--dry-run", help="show what would happen without writing anything"),
 ) -> None:
@@ -48,16 +51,28 @@ def pack(
     if not (mod_dir / "modDesc.xml").is_file():
         raise die(f"'{mod_dir.name}' has no modDesc.xml — packing canceled!")
 
+    try:
+        cfg = packconfig.load(mod_dir)
+    except packconfig.PackConfigError as exc:
+        raise die(str(exc)) from exc
+
     out_dir = output.expanduser().resolve() if output else mod_dir
-    zip_path = out_dir / f"{packmod.zip_stem(mod_dir)}.zip"
+    zip_path = out_dir / f"{packmod.zip_stem(mod_dir, cfg.zip_name)}.zip"
 
     info(f"Packing mod {typer.style(mod_dir.name, bold=True)}")
     info(f"  source : {mod_dir}")
     info(f"  output : {zip_path}")
-    if keep_images:
-        info("  images : included (--keep-images)")
+    src = f"(from {packconfig.CONFIG_NAME})"
+    if cfg.zip_name:
+        info(f"  zip    : {zip_path.stem} {src}")
+    if cfg.title:
+        info(f"  title  : {cfg.title_display()} {src}")
+    if cfg.version:
+        info(f"  version: {cfg.version} {src}")
+    if cfg.author:
+        info(f"  author : {cfg.author} {src}")
 
-    entries = packmod.collect_files(mod_dir, zip_path.name, keep_images)
+    entries = packmod.collect_files(mod_dir, zip_path.name)
 
     if dry_run:
         warn(f"dry-run: would pack {len(entries)} files:")
@@ -66,7 +81,8 @@ def pack(
     else:
         if zip_path.exists():
             warn(f"Old {zip_path.name} will be replaced")
-        size = packmod.write_zip(mod_dir, zip_path, entries)
+        size = packmod.write_zip(mod_dir, zip_path, entries,
+                                 title=cfg.title, version=cfg.version, author=cfg.author)
         ok(f"Mod '{mod_dir.name}' packed successfully! "
            f"({len(entries)} files, {size / 1_048_576:.1f} MiB)")
 
@@ -138,8 +154,6 @@ def validate(
 def test(
     mod: Path = typer.Argument(
         Path("."), help="mod folder or .zip to test (default: current folder)"),
-    keep_images: bool = typer.Option(
-        False, "--keep-images", help="when packing a folder, keep png/psd/tga"),
     verbose: bool = typer.Option(
         False, "--verbose", help="pass --verbose to the TestRunner"),
 ) -> None:
@@ -166,10 +180,15 @@ def test(
     if mod.is_dir():
         if not (mod / "modDesc.xml").is_file():
             raise die(f"'{mod.name}' has no modDesc.xml")
+        try:
+            cfg = packconfig.load(mod)
+        except packconfig.PackConfigError as exc:
+            raise die(str(exc)) from exc
         tmp = tempfile.TemporaryDirectory(prefix="fstest-")
-        zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod)}.zip"
-        entries = packmod.collect_files(mod, zip_path.name, keep_images)
-        packmod.write_zip(mod, zip_path, entries)
+        zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod, cfg.zip_name)}.zip"
+        entries = packmod.collect_files(mod, zip_path.name)
+        packmod.write_zip(mod, zip_path, entries,
+                          title=cfg.title, version=cfg.version, author=cfg.author)
         info(f"Packed {mod.name} -> {zip_path.name} ({len(entries)} files)")
         output_dir = mod.parent
     elif mod.suffix.lower() == ".zip" and mod.is_file():
@@ -245,11 +264,59 @@ def testrunner_cmd(
 
 
 @app.command()
+def edit(
+    scene: Path = typer.Argument(
+        ..., help="the .i3d scene to open in the GIANTS Editor"),
+    debug: bool = typer.Option(
+        False, "-v", "--debug", help="run in the foreground and print the editor's "
+        "console (shows 'could not load file' warnings for missing/mis-cased refs)"),
+) -> None:
+    """Open an .i3d scene in the GIANTS Editor (via the FS25 Proton prefix)."""
+    path = scene.expanduser().resolve()
+    if not path.is_file():
+        raise die(f"File not found: {scene}")
+    if path.suffix.lower() != ".i3d":
+        warn(f"{path.name} is not an .i3d file — opening it anyway")
+    # In debug mode the editor inherits our stdio; Wine leaves the tty in raw
+    # mode on exit, so snapshot/restore the terminal around the whole run.
+    with (editormod.preserve_terminal() if debug else contextlib.nullcontext()):
+        try:
+            proc = editormod.launch(path, quiet=not debug)
+        except FileNotFoundError as exc:
+            raise die(str(exc)) from exc
+        ok(f"Opening {path.name} in the GIANTS Editor…")
+        if debug:
+            info("Editor console follows (close the editor to return):")
+            proc.wait()
+
+
+@app.command("register-editor")
+def register_editor(
+    remove: bool = typer.Option(
+        False, "--remove", help="undo the association instead of installing it"),
+) -> None:
+    """Associate .i3d files with the GIANTS Editor so you can open them from any
+    file manager (double-click) or with `xdg-open FILE.i3d`."""
+    if remove:
+        editormod.unregister()
+        ok("Removed the .i3d → GIANTS Editor file association.")
+        return
+    if config.editor_exe() is None:
+        warn("GIANTS Editor not detected in the FS25 prefix — installing the "
+             "association anyway. Set FS25_EDITOR or install the editor in the "
+             "prefix so `fs edit` can find editor.exe.")
+    editormod.register()
+    ok("Registered .i3d files to open with the GIANTS Editor (via `fs edit`).")
+    info("Double-click any .i3d in your file manager, or run:  xdg-open FILE.i3d")
+
+
+@app.command()
 def paths() -> None:
     """Show the detected FS25 folders (useful for debugging config)."""
     info(f"app id     : {config.APPID}")
     info(f"game data  : {config.game_data_dir() or '(not found)'}")
     info(f"game install: {config.game_install_dir() or '(not found)'}")
+    info(f"editor     : {config.editor_exe() or '(not found)'}")
     info(f"mods dir   : {config.mods_dir() or '(not found)'}")
     info(f"log.txt    : {config.log_path() or '(not found)'}")
     info(f"testrunner : {testrunner.installed_exe() or '(not installed)'}")

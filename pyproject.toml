@@ -3,7 +3,7 @@ name = "fstools"
 version = "0.1.0"
 description = "Farming Simulator 25 modding helpers for Linux"
 requires-python = ">=3.11"
-dependencies = ["typer>=0.12"]
+dependencies = ["typer>=0.12", "defusedxml>=0.7"]
 
 [project.scripts]
 fs = "fstools.cli:app"
