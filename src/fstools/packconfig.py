@@ -96,6 +96,8 @@ def load(mod_dir: Path) -> PackConfig:
     zip_name = _clean_str(mod.get("zip_name"), "zip_name")
     if zip_name and zip_name.lower().endswith(".zip"):  # tolerate a stray .zip
         zip_name = zip_name[:-4] or None
+    if zip_name and Path(zip_name).name != zip_name:
+        raise PackConfigError(f"'zip_name' must not contain path separators in {CONFIG_NAME}")
     return PackConfig(
         zip_name=zip_name,
         title=_load_title(mod.get("title")),

@@ -115,7 +115,7 @@ def _desktop_entry() -> str:
         "Type=Application\n"
         "Name=GIANTS Editor (fsTools)\n"
         "Comment=Open i3d scenes in the GIANTS Editor via the FS25 Proton prefix\n"
-        f"Exec={_fs_bin()} edit %f\n"
+        f'Exec="{_fs_bin()}" edit %f\n'
         "Terminal=false\n"
         "NoDisplay=true\n"
         f"MimeType={MIME_TYPE};\n"

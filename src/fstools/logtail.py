@@ -52,8 +52,13 @@ def tail(log: Path, errors_only: bool, lines: int, follow: bool) -> None:
                 time.sleep(0.4)  # brief gap while the game recreates it
                 continue
             if st.st_ino != inode or st.st_size < fh.tell():
+                try:
+                    new_fh = log.open("r", errors="replace")
+                except OSError:
+                    time.sleep(0.4)  # transient lock/removal during rotation; retry
+                    continue
                 fh.close()
-                fh = log.open("r", errors="replace")
+                fh = new_fh
                 inode = os.fstat(fh.fileno()).st_ino
                 continue  # re-emit the fresh log from its start
             time.sleep(0.4)

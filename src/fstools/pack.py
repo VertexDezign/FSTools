@@ -6,6 +6,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
+import defusedxml.ElementTree as DefusedET
+
 from .packconfig import CONFIG_NAME
 
 MOD_PREFIX = "FS25_"
@@ -36,7 +38,7 @@ EXCLUDE_DIRS = {
 def zip_stem(mod_dir: Path, override: str | None = None) -> str:
     """The zip name (without .zip), normalized to the required 'FS25_' prefix.
 
-    Uses ``override`` (from fspack.toml) when given, else the mod folder name.
+    Uses ``override`` (from fstools.toml) when given, else the mod folder name.
     The 'FS25_' prefix is added if missing (any existing prefix, any case, is
     normalized to 'FS25_'); the rest of the name is left as-is.
     """
@@ -76,8 +78,11 @@ def is_ignored(rel: Path, patterns: list[str]) -> bool:
         return False
     posix = rel.as_posix()
     for pat in patterns:
-        p = pat.rstrip("/")
-        if "/" in p:
+        anchored = pat.startswith("/")
+        p = pat.strip("/")
+        if not p:
+            continue
+        if anchored or "/" in p:
             if fnmatch.fnmatch(posix, p) or fnmatch.fnmatch(posix, f"{p}/*"):
                 return True
         elif any(fnmatch.fnmatch(part, p) for part in rel.parts):
@@ -134,7 +139,7 @@ def rewrite_moddesc(mod_dir: Path, *, title: str | dict[str, str] | None = None,
 
     Lets fstools.toml drive the mod's metadata without editing the file on disk.
     """
-    root = ET.parse(mod_dir / "modDesc.xml").getroot()
+    root = DefusedET.parse(mod_dir / "modDesc.xml").getroot()
     if version is not None:
         _set_child_text(root, "version", version)
     if author is not None:

@@ -54,7 +54,7 @@ def pack(
     try:
         cfg = packconfig.load(mod_dir)
     except packconfig.PackConfigError as exc:
-        raise die(str(exc))
+        raise die(str(exc)) from exc
 
     out_dir = output.expanduser().resolve() if output else mod_dir
     zip_path = out_dir / f"{packmod.zip_stem(mod_dir, cfg.zip_name)}.zip"
@@ -183,7 +183,7 @@ def test(
         try:
             cfg = packconfig.load(mod)
         except packconfig.PackConfigError as exc:
-            raise die(str(exc))
+            raise die(str(exc)) from exc
         tmp = tempfile.TemporaryDirectory(prefix="fstest-")
         zip_path = Path(tmp.name) / f"{packmod.zip_stem(mod, cfg.zip_name)}.zip"
         entries = packmod.collect_files(mod, zip_path.name)
@@ -283,7 +283,7 @@ def edit(
         try:
             proc = editormod.launch(path, quiet=not debug)
         except FileNotFoundError as exc:
-            raise die(str(exc))
+            raise die(str(exc)) from exc
         ok(f"Opening {path.name} in the GIANTS Editor…")
         if debug:
             info("Editor console follows (close the editor to return):")
