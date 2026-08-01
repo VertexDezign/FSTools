@@ -41,6 +41,10 @@ fs pack -p                 # deploy, then launch FS25 via Steam
 fs pack -n                 # dry run — list files, write nothing
 fs pack ../OtherMod        # a path still works if you'd rather not cd
 
+fs patch                   # swap files into an existing mod zip (needs fstools.toml)
+fs patch -d                # …and copy the patched zip into the mods folder
+fs patch -n                # dry run — show what would be replaced
+
 fs validate                # check the current folder's modDesc.xml
 
 fs test                    # run the GIANTS ModHub TestRunner (opens the HTML report)
@@ -130,6 +134,63 @@ it a different `zip_name` (FS keys mods by zip filename) and a `title` so you ca
 tell them apart in the mod list. Delete or `.gitignore` the file to go back to a
 normal build. `fs test` honours the same config.
 
+The same file also carries the `[patch]` section that drives `fs patch` (below);
+the two sections are independent — a folder is either a mod source tree or a
+patch overlay.
+
+### Patching someone else's mod (`fs patch`)
+
+`fs pack` builds *your* mod from source. `fs patch` is for the other case: a mod
+you downloaded — usually from ModHub — where you want to swap out a texture, an
+xml or two, without unpacking and repacking the whole thing.
+
+Make a folder that mirrors the mod's **internal** layout and drop an
+`fstools.toml` in it:
+
+```
+MyMod-patch/
+  fstools.toml
+  textures/mainTexture.dds     # replaces textures/mainTexture.dds in the zip
+  xml/vehicle.xml              # replaces xml/vehicle.xml in the zip
+```
+
+```toml
+[patch]
+source         = "~/Downloads/FS25_SomeMod.zip"  # the zip to patch (required)
+zip_name       = "FS25_SomeMod"                  # output stem (default: the base's name)
+version_suffix = "-bl"                           # appended to the base's <version>
+```
+
+Then `fs patch` writes a patched `FS25_SomeMod.zip` into the patch folder, and
+`fs patch -d` copies it into the mods folder (`-p` also launches the game, `-n`
+is a dry run, `-o DIR` writes elsewhere) — the same flags `fs pack` uses.
+
+- **The base zip is never modified.** Every entry it holds is copied across
+  verbatim except the ones you replace, so re-running after the mod updates
+  upstream starts from a clean copy every time.
+- `source` may be a path (relative ones resolve against the patch folder), or a
+  bare zip name — then it's looked up in the FS25 mods folder. `.zip` is optional.
+- A file that isn't in the base zip is **added**, with a warning — usually that
+  means a typo in your layout, occasionally it's what you wanted.
+- Case is matched leniently: `textures/foo.dds` still patches the zip's
+  `textures/Foo.dds` (it keeps the zip's spelling, so FS keeps finding it) and
+  says so.
+- The same exclusions as `fs pack` apply, so a `.psd` sitting next to your `.dds`
+  or a `README.md` in the patch folder won't end up in the zip. `.fsignore` works
+  here too.
+
+`version_suffix` is the point of the exercise for ModHub mods: it appends to
+whatever `<version>` the base zip declares (`1.2.0.0` → `1.2.0.0-bl`), so in the
+in-game mod list and the ModHub update prompt you can see at a glance that the
+installed copy is *yours* — and needs re-patching once the update lands. It's
+applied by splicing the version into `modDesc.xml`, leaving the rest of the
+upstream file byte-for-byte intact, and appending twice is a no-op, so patching
+an already-patched zip won't give you `1.2.0.0-bl-bl`.
+
+> Keep `source` pointing at a pristine copy **outside** the mods folder (your
+> Downloads folder is fine). `fs patch` refuses to deploy on top of its own base
+> zip, since that would destroy the copy the next run needs.
+
 ### ModHub TestRunner (`fs test`)
 
 Runs GIANTS' official [TestRunner](https://gdn.giants-software.com/) — the same
@@ -200,6 +261,8 @@ src/fstools/
   cli.py                  # Typer app — subcommand wiring
   config.py               # shared Steam/Proton path detection
   pack.py                 # zip packing + exclusion rules
+  packconfig.py           # per-mod fstools.toml ([mod] and [patch] sections)
+  patch.py                # swap single files into an existing mod zip
   validate.py             # modDesc.xml checks
   testrunner.py           # GIANTS ModHub TestRunner runner (via Proton)
   editor.py               # open .i3d in the GIANTS Editor + .i3d file association
