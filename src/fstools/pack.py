@@ -20,7 +20,7 @@ EXCLUDE_FILES = [
     "*.cmd", "*.sh", "*.py", "*.zip", "*.yml", "*.yaml",
     "*.blend", "*.obj", "*.fbx",
     "*.mel", "*.mb", "*.ma",
-    "*.psd", "*.pdn",  # image editor sources — never part of a mod zip
+    "*.psd", "*.pdn", "*.ora", "*.xcf",  # image editor sources — never part of a mod zip
     "*.txt", "*.md",
     ".gitattributes", ".gitignore", ".editorconfig",
     ".DS_Store", "Thumbs.db",
