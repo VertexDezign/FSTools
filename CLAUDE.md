@@ -18,18 +18,21 @@ uv tool uninstall fstools
 ```
 
 The checked-in `.venv/` belongs to the maintainer's host machine (absolute host paths in its
-shebangs) and will not execute in a container. To exercise the CLI without uv:
+shebangs) and will not execute in a container — but its `site-packages` is importable. To exercise
+the CLI without uv, put `src/` and those packages on `PYTHONPATH` (glob the interpreter version
+rather than hard-coding it; the project supports Python 3.11+):
 
 ```sh
-PYTHONPATH=src:.venv/lib/python3.13/site-packages python3 -m fstools.cli --help
+export PYTHONPATH="src:$(echo .venv/lib/python3*/site-packages)"
+python3 -m fstools.cli --help
 ```
 
 There is **no test suite, linter config, or CI**. Verify changes by running the CLI against a
 throwaway mod folder (any directory containing a `modDesc.xml`):
 
 ```sh
-PYTHONPATH=src:.venv/lib/python3.13/site-packages python3 -m fstools.cli pack /tmp/FS25_Demo -n
-PYTHONPATH=src:.venv/lib/python3.13/site-packages python3 -m fstools.cli validate /tmp/FS25_Demo
+python3 -m fstools.cli pack /tmp/FS25_Demo -n
+python3 -m fstools.cli validate /tmp/FS25_Demo
 ```
 
 `pack`/`validate` work anywhere. `test`, `edit`, `paths` and `log` need a real Steam + Proton FS25
@@ -79,8 +82,10 @@ subprocess code, or the user's shell breaks after running `fs edit`.
 
 Feature modules raise domain exceptions carrying a user-facing message (`PackConfigError`,
 `TestRunnerBusy`, `FileNotFoundError`); `cli.py` catches and re-emits them. `console.die()` prints
-in red and **returns** a `typer.Exit`, so it is always used as `raise die(...)`. All output goes
-through `console.py` (`info`/`ok`/`warn`) — no bare `print`. `fs test` exit codes are contractual:
+in red and **returns** a `typer.Exit`, so it is always used as `raise die(...)`. Decorated output
+goes through `console.py` (`info`/`ok`/`warn`) — never bare `print`. Raw, unprefixed lines (the
+`pack --dry-run` file listing, the `fs log` stream) use `typer.echo`/`typer.secho` directly, since
+a `::` prefix would corrupt them. `fs test` exit codes are contractual:
 `0` PASS, `1` FAIL, `2` CRASH (TestRunner aborted without a report).
 
 ### Other invariants
