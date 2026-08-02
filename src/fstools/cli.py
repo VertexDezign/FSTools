@@ -36,7 +36,7 @@ def pack(
     mod_folder: Path = typer.Argument(
         Path("."), help="mod folder to pack (default: current folder)"),
     output: Optional[Path] = typer.Option(
-        None, "-o", "--output", help="write the .zip here (default: mod folder's parent)"),
+        None, "-o", "--output", help="write the .zip here (default: the mod folder)"),
     deploy: bool = typer.Option(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
     play: bool = typer.Option(
