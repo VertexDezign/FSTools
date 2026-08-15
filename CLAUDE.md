@@ -35,13 +35,16 @@ python3 -m fstools.cli pack /tmp/FS25_Demo -n
 python3 -m fstools.cli validate /tmp/FS25_Demo
 ```
 
-`pack`/`validate` work anywhere. `test`, `edit`, `paths` and `log` need a real Steam + Proton FS25
-install (and `protontricks`), so they can only be verified on the user's machine.
+`pack`/`validate`/`patch` work anywhere (`patch` only needs the mods folder when its `source` is a
+bare zip name — pack a throwaway mod to a zip and point `source` at it). `test`, `edit`, `paths` and
+`log` need a real Steam + Proton FS25 install (and `protontricks`), so they can only be verified on
+the user's machine.
 
 ## Architecture
 
-Thin Typer command layer (`cli.py`) over one module per feature (`pack`, `validate`, `testrunner`,
-`editor`, `logtail`), plus two shared modules: `config.py` (paths) and `console.py` (output).
+Thin Typer command layer (`cli.py`) over one module per feature (`pack`, `patch`, `validate`,
+`testrunner`, `editor`, `logtail`), plus two shared modules: `config.py` (paths) and `console.py`
+(output).
 
 ### Path detection lives only in config.py
 
@@ -78,10 +81,30 @@ subprocess code, or the user's shell breaks after running `fs edit`.
 - `fs test` reuses the identical pipeline into a `TemporaryDirectory`, so packing changes apply to
   testing automatically; the two call sites in `cli.py` must stay in sync.
 
+### Patch pipeline (`fs patch`)
+
+`packconfig.load_patch()` → `patch.resolve_base()` → `patch.out_stem()` → `pack.collect_files()` →
+`patch.plan()` → `patch.apply()`. Same overlay folder, `[patch]` section instead of `[mod]`; the
+exclusion layers are reused wholesale, so `.fsignore` and `EXCLUDE_*` behave exactly as in `pack`.
+
+- **The base zip is read-only.** It is the pristine copy every re-run starts from (mods get updated
+  upstream), so `cli.py` refuses both an output path and a deploy target equal to it. `apply()`
+  builds a `.part` file and `replace()`s it into place so a mid-write failure cannot truncate a
+  good zip.
+- Untouched entries are streamed across with their original `compress_type`; replacements keep the
+  entry's compression too. Overlay paths are matched against zip entry names case-insensitively and
+  the **zip's** spelling wins — a Windows-built zip may hold `textures/Foo.dds`, and writing the
+  overlay's casing would silently add a second entry FS never reads.
+- `version_suffix` is spliced into `modDesc.xml` at the **byte level** (`patch._VERSION_RE`), not
+  via an XML round-trip: this is someone else's modDesc, and re-serializing would drop their
+  comments. Appending is idempotent, so re-patching never stacks suffixes.
+- `_deploy_and_play()` in `cli.py` is shared with `pack` — the `-d`/`-p` semantics must stay
+  identical for both.
+
 ### Error and output conventions
 
 Feature modules raise domain exceptions carrying a user-facing message (`PackConfigError`,
-`TestRunnerBusy`, `FileNotFoundError`); `cli.py` catches and re-emits them. `console.die()` prints
+`PatchError`, `TestRunnerBusy`, `FileNotFoundError`); `cli.py` catches and re-emits them. `console.die()` prints
 in red and **returns** a `typer.Exit`, so it is always used as `raise die(...)`. Decorated output
 goes through `console.py` (`info`/`ok`/`warn`) — never bare `print`. Raw, unprefixed lines (the
 `pack --dry-run` file listing, the `fs log` stream) use `typer.echo`/`typer.secho` directly, since

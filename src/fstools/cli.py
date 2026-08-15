@@ -2,6 +2,7 @@
 
 Subcommands:
     fs pack MOD       pack a mod folder into a .zip (optionally deploy + launch)
+    fs patch DIR      swap single files into an existing mod .zip
     fs log            follow the game log.txt (errors in red, warnings yellow)
     fs validate MOD   sanity-check a mod's modDesc.xml
     fs edit FILE.i3d  open an .i3d scene in the GIANTS Editor
@@ -15,13 +16,12 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import typer
 
 from . import (
     config, editor as editormod, logtail, pack as packmod, packconfig,
-    testrunner, validate as validatemod,
+    patch as patchmod, testrunner, validate as validatemod,
 )
 from .console import die, info, ok, warn
 
@@ -31,11 +31,39 @@ app = typer.Typer(
 )
 
 
+def _deploy_and_play(zip_path: Path, *, deploy: bool, play: bool, dry_run: bool) -> None:
+    """Shared tail of `pack` and `patch`: copy into mods/, then launch FS25."""
+    if deploy or play:
+        mods = config.mods_dir()
+        if mods is None:
+            raise die("Could not find FS25 mods folder. Set FS25_MODS_DIR.")
+        info(f"Deploying to {mods}")
+        if dry_run:
+            warn(f"dry-run: would copy {zip_path.name} -> {mods}/")
+        else:
+            shutil.copy2(zip_path, mods / zip_path.name)
+            ok(f"Copied {zip_path.name} into mods folder")
+
+    if play:
+        if dry_run:
+            warn(f"dry-run: would run: steam -applaunch {config.APPID}")
+        elif shutil.which("steam") is None:
+            raise die("steam not found on PATH.")
+        else:
+            info(f"Launching FS25 via Steam (app {config.APPID})…")
+            subprocess.Popen(
+                ["steam", "-applaunch", config.APPID],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            ok("Launch requested — check Steam.")
+
+
 @app.command()
 def pack(
     mod_folder: Path = typer.Argument(
         Path("."), help="mod folder to pack (default: current folder)"),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "-o", "--output", help="write the .zip here (default: the mod folder)"),
     deploy: bool = typer.Option(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
@@ -86,30 +114,103 @@ def pack(
         ok(f"Mod '{mod_dir.name}' packed successfully! "
            f"({len(entries)} files, {size / 1_048_576:.1f} MiB)")
 
+    _deploy_and_play(zip_path, deploy=deploy, play=play, dry_run=dry_run)
+
+
+@app.command()
+def patch(
+    patch_folder: Path = typer.Argument(
+        Path("."), help="folder with fstools.toml and the replacement files "
+        "(default: current folder)"),
+    output: Path | None = typer.Option(
+        None, "-o", "--output", help="write the patched .zip here (default: the patch folder)"),
+    deploy: bool = typer.Option(
+        False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
+    play: bool = typer.Option(
+        False, "-p", "--play", help="deploy, then launch FS25 via Steam (implies --deploy)"),
+    dry_run: bool = typer.Option(
+        False, "-n", "--dry-run", help="show what would happen without writing anything"),
+) -> None:
+    """Swap single files into an existing mod .zip (textures, xml, …).
+
+    The folder holds an fstools.toml with a 'patch' section and mirrors the mod's
+    internal layout — 'textures/foo.dds' here replaces 'textures/foo.dds' in the
+    zip. The base zip named by 'source' is never modified.
+    """
+    # (No literal [patch] in this docstring: Typer renders it as rich markup and
+    # the brackets vanish from --help.)
+    patch_dir = patch_folder.expanduser().resolve()
+    if not patch_dir.is_dir():
+        raise die(f"Patch folder not found: {patch_folder}")
+
+    try:
+        cfg = packconfig.load_patch(patch_dir)
+    except packconfig.PackConfigError as exc:
+        raise die(str(exc)) from exc
+    if cfg.source is None:
+        raise die(f"No '[patch] source' in {patch_dir / packconfig.CONFIG_NAME} — set the "
+                  'mod zip to patch, e.g.\n    [patch]\n    source = "FS25_SomeMod.zip"')
+
+    try:
+        base = patchmod.resolve_base(cfg.source, patch_dir, config.mods_dir())
+    except patchmod.PatchError as exc:
+        raise die(str(exc)) from exc
+
+    out_dir = output.expanduser().resolve() if output else patch_dir
+    zip_path = out_dir / f"{patchmod.out_stem(base, cfg.zip_name)}.zip"
+    if zip_path.resolve() == base:
+        raise die(f"Output would overwrite the base zip ({base}). Set '[patch] zip_name' "
+                  "or -o, or point 'source' at a pristine copy.")
+
+    info(f"Patching {typer.style(base.stem, bold=True)}")
+    info(f"  base   : {base}")
+    info(f"  output : {zip_path}")
+
+    entries = packmod.collect_files(patch_dir, zip_path.name)
+    try:
+        plan = patchmod.plan(base, patch_dir, entries)
+        version = patchmod.version_change(plan, cfg.version_suffix) if cfg.version_suffix else None
+    except patchmod.PatchError as exc:
+        raise die(str(exc)) from exc
+
+    if version:
+        old, new = version
+        src = f"(from {packconfig.CONFIG_NAME})"
+        info(f"  version: {old} -> {new} {src}" if old != new
+             else f"  version: {new} (already suffixed)")
+    for arc in plan.replaced:
+        info(f"  replace: {arc}")
+    for overlay, actual in plan.recased.items():
+        warn(f"{overlay} differs in case from the zip's {actual} — patching {actual}")
+    for arc in plan.added:
+        warn(f"{arc} is not in {base.name} — adding it as a new file")
+
+    if plan.empty and not cfg.version_suffix:
+        raise die(f"Nothing to patch: no files to replace in {patch_dir} "
+                  "(and no version_suffix set).")
+
+    # Deploying on top of the base zip would destroy the pristine copy the next
+    # run needs — catch it before doing the work, not after.
     if deploy or play:
         mods = config.mods_dir()
-        if mods is None:
-            raise die("Could not find FS25 mods folder. Set FS25_MODS_DIR.")
-        info(f"Deploying to {mods}")
-        if dry_run:
-            warn(f"dry-run: would copy {zip_path.name} -> {mods}/")
-        else:
-            shutil.copy2(zip_path, mods / zip_path.name)
-            ok(f"Copied {zip_path.name} into mods folder")
+        if mods is not None and (mods / zip_path.name).resolve() == base:
+            raise die(f"Deploying would overwrite the base zip ({base}). Copy it somewhere "
+                      "outside the mods folder and point 'source' there.")
 
-    if play:
-        if dry_run:
-            warn(f"dry-run: would run: steam -applaunch {config.APPID}")
-        elif shutil.which("steam") is None:
-            raise die("steam not found on PATH.")
-        else:
-            info(f"Launching FS25 via Steam (app {config.APPID})…")
-            subprocess.Popen(
-                ["steam", "-applaunch", config.APPID],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            ok("Launch requested — check Steam.")
+    if dry_run:
+        warn(f"dry-run: would write {zip_path.name} "
+             f"({len(plan.replaced)} replaced, {len(plan.added)} added)")
+    else:
+        if zip_path.exists():
+            warn(f"Old {zip_path.name} will be replaced")
+        try:
+            result = patchmod.apply(zip_path, plan, version_suffix=cfg.version_suffix)
+        except patchmod.PatchError as exc:
+            raise die(str(exc)) from exc
+        ok(f"Patched {zip_path.name} ({result.replaced} replaced, {result.added} added, "
+           f"{result.size / 1_048_576:.1f} MiB)")
+
+    _deploy_and_play(zip_path, deploy=deploy, play=play, dry_run=dry_run)
 
 
 @app.command()
@@ -232,7 +333,7 @@ def testrunner_cmd(
     update: bool = typer.Option(
         False, "-u", "--update", help="install/replace the exe from SOURCE (or the "
         "newest TestRunner*.zip found in the project / ~/Downloads)"),
-    source: Optional[Path] = typer.Option(
+    source: Path | None = typer.Option(
         None, "-s", "--source", help="path to a TestRunner*.zip or .exe to install"),
 ) -> None:
     """Show or update the installed GIANTS TestRunner executable."""
