@@ -11,6 +11,7 @@ starts from, so re-running after upstream updates the mod is always clean.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import zipfile
@@ -62,13 +63,16 @@ def resolve_base(source: str, patch_dir: Path, mods: Path | None) -> Path:
     raw = Path(spec).expanduser()
     if len(raw.parts) > 1:
         base = raw if raw.is_absolute() else patch_dir / raw
-        base = base.resolve()
     elif mods is None:
         raise PatchError(
             f"'source = \"{source}\"' is a bare zip name, but the FS25 mods folder "
             "was not found. Set FS25_MODS_DIR, or give a path instead.")
     else:
         base = mods / raw.name
+    # Canonical from here on: the mods folder is usually reached through a symlink
+    # (~/.steam/steam → ~/.local/share/Steam), and the callers that guard against
+    # clobbering the base compare it against paths they resolved themselves.
+    base = base.resolve()
     if not base.is_file():
         raise PatchError(f"Base zip not found: {base}")
     if not zipfile.is_zipfile(base):
@@ -163,7 +167,15 @@ def _write_from_disk(dst: zipfile.ZipFile, disk: Path, arcname: str,
 
 
 def apply(out_zip: Path, plan: Plan, *, version_suffix: str | None = None) -> PatchResult:
-    """Write the patched zip. Entries not in the plan are copied over verbatim."""
+    """Write the patched zip. Entries not in the plan are copied over verbatim.
+
+    Refuses to write onto the base zip even if a caller asks for it: the base is
+    read *while* the output is written, and it is the pristine copy the next run
+    starts from — overwriting it makes the patch unrepeatable.
+    """
+    if out_zip.resolve() == plan.base.resolve():
+        raise PatchError(f"Refusing to overwrite the base zip: {plan.base}")
+
     overrides: dict[str, bytes] = {}
     if version_suffix:
         arc, data = read_moddesc(plan)
@@ -171,8 +183,9 @@ def apply(out_zip: Path, plan: Plan, *, version_suffix: str | None = None) -> Pa
 
     out_zip.parent.mkdir(parents=True, exist_ok=True)
     # Build beside the target and move into place, so a failure halfway through
-    # cannot leave a truncated zip where a working one used to be.
-    tmp = out_zip.with_name(f"{out_zip.name}.part")
+    # cannot leave a truncated zip where a working one used to be. The pid keeps
+    # two runs writing the same output out of each other's half-built file.
+    tmp = out_zip.with_name(f"{out_zip.name}.{os.getpid()}.part")
     replaced = added = 0
     try:
         with zipfile.ZipFile(plan.base) as src, \

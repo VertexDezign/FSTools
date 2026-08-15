@@ -95,6 +95,23 @@ def _load_title(value: object) -> str | dict[str, str] | None:
     raise PackConfigError(f"'title' must be a string or a table in {CONFIG_NAME}")
 
 
+def _load_version_suffix(value: object) -> str | None:
+    """Validate ``[patch] version_suffix``: it must be XML text as typed.
+
+    The suffix is spliced into someone else's modDesc.xml byte for byte (see
+    ``patch.bump_version``), so a raw '&' or '<' would hand the user a mod FS
+    cannot parse. Escaping it instead would surface as '&amp;' in the in-game
+    version string, so reject the character outright.
+    """
+    suffix = _clean_str(value, "version_suffix")
+    bad = [c for c in ("&", "<", ">") if c in (suffix or "")]
+    if bad:
+        raise PackConfigError(
+            f"'version_suffix' must not contain {' or '.join(bad)} in {CONFIG_NAME} — "
+            "it is written into modDesc.xml as-is and would break the XML")
+    return suffix
+
+
 def _load_zip_name(value: object) -> str | None:
     name = _clean_str(value, "zip_name")
     if name and name.lower().endswith(".zip"):  # tolerate a stray .zip
@@ -141,5 +158,5 @@ def load_patch(patch_dir: Path) -> PatchConfig:
     return PatchConfig(
         source=_clean_str(patch.get("source"), "source"),
         zip_name=_load_zip_name(patch.get("zip_name")),
-        version_suffix=_clean_str(patch.get("version_suffix"), "version_suffix"),
+        version_suffix=_load_version_suffix(patch.get("version_suffix")),
     )

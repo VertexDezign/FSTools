@@ -16,7 +16,6 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -64,7 +63,7 @@ def _deploy_and_play(zip_path: Path, *, deploy: bool, play: bool, dry_run: bool)
 def pack(
     mod_folder: Path = typer.Argument(
         Path("."), help="mod folder to pack (default: current folder)"),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "-o", "--output", help="write the .zip here (default: the mod folder)"),
     deploy: bool = typer.Option(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
@@ -123,7 +122,7 @@ def patch(
     patch_folder: Path = typer.Argument(
         Path("."), help="folder with fstools.toml and the replacement files "
         "(default: current folder)"),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "-o", "--output", help="write the patched .zip here (default: the patch folder)"),
     deploy: bool = typer.Option(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
@@ -159,7 +158,7 @@ def patch(
 
     out_dir = output.expanduser().resolve() if output else patch_dir
     zip_path = out_dir / f"{patchmod.out_stem(base, cfg.zip_name)}.zip"
-    if zip_path == base:
+    if zip_path.resolve() == base:
         raise die(f"Output would overwrite the base zip ({base}). Set '[patch] zip_name' "
                   "or -o, or point 'source' at a pristine copy.")
 
@@ -334,7 +333,7 @@ def testrunner_cmd(
     update: bool = typer.Option(
         False, "-u", "--update", help="install/replace the exe from SOURCE (or the "
         "newest TestRunner*.zip found in the project / ~/Downloads)"),
-    source: Optional[Path] = typer.Option(
+    source: Path | None = typer.Option(
         None, "-s", "--source", help="path to a TestRunner*.zip or .exe to install"),
 ) -> None:
     """Show or update the installed GIANTS TestRunner executable."""

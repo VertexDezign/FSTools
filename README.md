@@ -77,12 +77,12 @@ lands at the zip root (what FS requires), using the stdlib `zipfile` — no
 `7z`/`zip` binary needed. It refuses to pack a folder without a `modDesc.xml`.
 
 Excluded by default: source/DCC files (`*.blend *.obj *.fbx *.mel *.mb *.ma`),
-image-editor sources (`*.psd *.pdn`), scripts (`*.cmd *.sh *.py`), docs
-(`*.txt *.md`), VCS/IDE dirs (`.git .svn .idea .vscode …`), and `$data` /
-`substance` folders.
+image-editor sources (`*.psd *.pdn *.ora *.xcf *.kra`), scripts
+(`*.cmd *.sh *.py`), docs (`*.txt *.md`), VCS/IDE dirs
+(`.git .svn .idea .vscode …`), and `$data` / `substance` folders.
 
 > Rendered images (`.png`, `.dds`, `.tga`, …) are **kept** — a mod's textures and
-> icon ship as-is (only the editor sources `.psd`/`.pdn` are dropped). If your
+> icon ship as-is; only the layered editor sources above are dropped. If your
 > repo holds image (or other) files that aren't part of the mod, list them in a
 > `.fsignore` (see below). Run `fs test` before publishing: the GIANTS TestRunner
 > flags a `.png` used where a `.dds` is expected, so you don't need the packer to
@@ -95,13 +95,13 @@ gitignore-flavoured — one glob per line, `#` comments and blank lines ignored:
 
 ```gitignore
 # working files that live in the repo but aren't part of the mod
-*.psd
-*.xcf
+*.blend1
+*.afphoto
 textures/_wip/          # a whole subfolder
 docs/preview.png        # a specific file
 ```
 
-A pattern **without** a `/` matches that name at any depth (`*.psd`, `_wip/`); a
+A pattern **without** a `/` matches that name at any depth (`*.blend1`, `_wip/`); a
 pattern **with** a `/` is anchored to the mod-relative path (`textures/_wip/`).
 `*` spans path separators. The `.fsignore` itself is never packed.
 
