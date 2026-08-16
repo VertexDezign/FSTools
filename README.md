@@ -40,6 +40,7 @@ fs pack -d                 # also copy into the FS25 mods folder
 fs pack -p                 # deploy, then launch FS25 via Steam
 fs pack -n                 # dry run — list files, write nothing
 fs pack ../OtherMod        # a path still works if you'd rather not cd
+fs pack --mod-version 1.2.0.0   # set <version> in the packed zip (CI: from the git tag)
 
 fs patch                   # swap files into an existing mod zip (needs fstools.toml)
 fs patch -d                # …and copy the patched zip into the mods folder
@@ -137,6 +138,24 @@ normal build. `fs test` honours the same config.
 The same file also carries the `[patch]` section that drives `fs patch` (below);
 the two sections are independent — a folder is either a mod source tree or a
 patch overlay.
+
+### Version from a git tag (`--mod-version`)
+
+`fs pack --mod-version VERSION` writes `<version>` into the packed zip's
+`modDesc.xml` — same mechanism as `[mod] version`, but taken from the command
+line so CI can derive it from the release tag. It **overrides** `fstools.toml`
+(the checked-in dev version must not win over the tag being built);
+`modDesc.xml` on disk stays untouched either way.
+
+```yaml
+# GitHub Actions: tag v1.4.2.0 -> FS25_MyMod.zip with <version>1.4.2.0</version>
+- run: fs pack -o dist --mod-version "${GITHUB_REF_NAME#v}"
+```
+
+The value is used verbatim (strip a leading `v` yourself, as above) and is
+XML-escaped on the way in, so any tag is safe to pass. An empty value is an
+error rather than a silent no-op, so a mistyped CI variable fails the build
+instead of shipping the wrong version.
 
 ### Patching someone else's mod (`fs patch`)
 

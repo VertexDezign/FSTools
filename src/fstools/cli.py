@@ -65,6 +65,10 @@ def pack(
         Path("."), help="mod folder to pack (default: current folder)"),
     output: Path | None = typer.Option(
         None, "-o", "--output", help="write the .zip here (default: the mod folder)"),
+    mod_version: str | None = typer.Option(
+        None, "--mod-version", metavar="VERSION",
+        help="set <version> in the packed modDesc.xml (e.g. a CI git tag); "
+             "overrides fstools.toml"),
     deploy: bool = typer.Option(
         False, "-d", "--deploy", help="also copy the .zip into the FS25 mods folder"),
     play: bool = typer.Option(
@@ -84,6 +88,14 @@ def pack(
     except packconfig.PackConfigError as exc:
         raise die(str(exc)) from exc
 
+    # --mod-version wins over fstools.toml: it is the CI path (version derived
+    # from the git tag), and the checked-in config must not override it.
+    version, version_src = cfg.version, f"(from {packconfig.CONFIG_NAME})"
+    if mod_version is not None:
+        version, version_src = mod_version.strip(), "(from --mod-version)"
+        if not version:
+            raise die("--mod-version must not be empty.")
+
     out_dir = output.expanduser().resolve() if output else mod_dir
     zip_path = out_dir / f"{packmod.zip_stem(mod_dir, cfg.zip_name)}.zip"
 
@@ -95,8 +107,8 @@ def pack(
         info(f"  zip    : {zip_path.stem} {src}")
     if cfg.title:
         info(f"  title  : {cfg.title_display()} {src}")
-    if cfg.version:
-        info(f"  version: {cfg.version} {src}")
+    if version:
+        info(f"  version: {version} {version_src}")
     if cfg.author:
         info(f"  author : {cfg.author} {src}")
 
@@ -110,7 +122,7 @@ def pack(
         if zip_path.exists():
             warn(f"Old {zip_path.name} will be replaced")
         size = packmod.write_zip(mod_dir, zip_path, entries,
-                                 title=cfg.title, version=cfg.version, author=cfg.author)
+                                 title=cfg.title, version=version, author=cfg.author)
         ok(f"Mod '{mod_dir.name}' packed successfully! "
            f"({len(entries)} files, {size / 1_048_576:.1f} MiB)")
 
