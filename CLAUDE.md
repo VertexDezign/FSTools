@@ -78,6 +78,10 @@ subprocess code, or the user's shell breaks after running `fs edit`.
 - `fstools.toml` overrides (`title`/`version`/`author`) are applied by `rewrite_moddesc()` **in
   memory** and injected with `writestr`. The `modDesc.xml` on disk is never modified — that
   invariant is the entire point of the config file. `zip_name` only changes the output filename.
+- `fs pack --mod-version` feeds the same `version` override from the command line and **wins over
+  `[mod] version`** — it is the CI path (version from the git tag), so the checked-in dev version
+  must not override it. Used verbatim; `ET.tostring` escapes it, so no XML-safety check is needed
+  here (unlike `patch`'s byte-level splice).
 - `fs test` reuses the identical pipeline into a `TemporaryDirectory`, so packing changes apply to
   testing automatically; the two call sites in `cli.py` must stay in sync.
 
