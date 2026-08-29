@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import fnmatch
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -24,6 +25,7 @@ EXCLUDE_FILES = [
     "*.txt", "*.md",
     ".gitattributes", ".gitignore", ".editorconfig",
     ".DS_Store", "Thumbs.db",
+    "LICENSE",
     CONFIG_NAME,   # our own fstools.toml — never ship it
     IGNORE_NAME,   # nor the .fsignore
 ]
@@ -133,20 +135,61 @@ def _apply_title(root: ET.Element, title: str | dict[str, str]) -> None:
             child.text = text
 
 
+# Expat reports a CDATA section as plain character data, so an ElementTree
+# round-trip would silently turn <![CDATA[…]]> into escaped text. The GIANTS
+# TestRunner insists on real CDATA sections in modDesc.xml (<description>), so
+# the section boundaries are fenced with sentinels while parsing and rebuilt
+# after serializing. NUL cannot occur in XML text, hence it cannot collide with
+# anything the modDesc actually contains.
+_CDATA_OPEN = "\x00[CDATA\x00"
+_CDATA_CLOSE = "\x00CDATA]\x00"
+_CDATA_SPAN = re.compile(
+    re.escape(_CDATA_OPEN.encode()) + b"(.*?)" + re.escape(_CDATA_CLOSE.encode()),
+    re.DOTALL,
+)
+
+
+class _CDataParser(DefusedET.DefusedXMLParser):
+    """Defused parser that fences CDATA sections in the text it hands to the tree."""
+
+    def __init__(self) -> None:
+        super().__init__(target=ET.TreeBuilder())
+        # Expat calls these around the section's character data, so the markers
+        # land in the same .text/.tail string as the content they wrap.
+        self.parser.StartCdataSectionHandler = lambda: self.target.data(_CDATA_OPEN)
+        self.parser.EndCdataSectionHandler = lambda: self.target.data(_CDATA_CLOSE)
+
+
+def _restore_cdata(data: bytes) -> bytes:
+    """Turn every fenced span back into a literal CDATA section.
+
+    ET escaped the fenced content on the way out ('<' -> '&lt;', …); inside a
+    CDATA section it has to be raw again, so undo exactly those three.
+    """
+    def unfence(match: re.Match[bytes]) -> bytes:
+        text = (match.group(1)
+                .replace(b"&lt;", b"<")
+                .replace(b"&gt;", b">")
+                .replace(b"&amp;", b"&"))
+        return b"<![CDATA[" + text + b"]]>"
+
+    return _CDATA_SPAN.sub(unfence, data)
+
+
 def rewrite_moddesc(mod_dir: Path, *, title: str | dict[str, str] | None = None,
                     version: str | None = None, author: str | None = None) -> bytes:
     """modDesc.xml bytes with the given fields overridden.
 
     Lets fstools.toml drive the mod's metadata without editing the file on disk.
     """
-    root = DefusedET.parse(mod_dir / "modDesc.xml").getroot()
+    root = DefusedET.parse(mod_dir / "modDesc.xml", parser=_CDataParser()).getroot()
     if version is not None:
         _set_child_text(root, "version", version)
     if author is not None:
         _set_child_text(root, "author", author)
     if title is not None:
         _apply_title(root, title)
-    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    return _restore_cdata(ET.tostring(root, encoding="utf-8", xml_declaration=True))
 
 
 def write_zip(mod_dir: Path, zip_path: Path, entries: list[Path], *,
