@@ -25,6 +25,7 @@ EXCLUDE_FILES = [
     "*.txt", "*.md",
     ".gitattributes", ".gitignore", ".editorconfig",
     ".DS_Store", "Thumbs.db",
+    "LICENSE",
     CONFIG_NAME,   # our own fstools.toml — never ship it
     IGNORE_NAME,   # nor the .fsignore
 ]
