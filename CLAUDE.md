@@ -78,6 +78,10 @@ subprocess code, or the user's shell breaks after running `fs edit`.
 - `fstools.toml` overrides (`title`/`version`/`author`) are applied by `rewrite_moddesc()` **in
   memory** and injected with `writestr`. The `modDesc.xml` on disk is never modified — that
   invariant is the entire point of the config file. `zip_name` only changes the output filename.
+- That rewrite must preserve **CDATA sections** — the TestRunner requires them in `<description>`,
+  and a plain ElementTree round-trip silently escapes them away. `_CDataParser` fences each section
+  with NUL sentinels while parsing and `_restore_cdata()` rebuilds `<![CDATA[…]]>` from the
+  serialized bytes; keep both when touching `rewrite_moddesc()`.
 - `fs pack --mod-version` feeds the same `version` override from the command line and **wins over
   `[mod] version`** — it is the CI path (version from the git tag), so the checked-in dev version
   must not override it. Used verbatim; `ET.tostring` escapes it, so no XML-safety check is needed
